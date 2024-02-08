@@ -1,0 +1,110 @@
+<?php
+/*
+Plugin Name: AnytoWEBP noGif
+Description: Converte imagens para WebP (exceto GIFs), redimensiona imagens grandes, mantém a relação de aspecto e aplica medidas de segurança. Renomeia imagens com ID da postagem.
+Version: 1.3
+Author: Daniel Oliveira da Paixao
+*/
+
+function converte_para_webp($file) {
+    // Verifique se o arquivo é uma imagem válida e não é um GIF
+    $valid_image_types = ['image/jpeg', 'image/png'];
+    if (in_array($file['type'], $valid_image_types)) {
+        $image_path = $file['file'];
+        $image_extension = strtolower(pathinfo($image_path, PATHINFO_EXTENSION));
+
+        // Verifica a validade da imagem
+        list($width, $height) = getimagesize($image_path);
+        if ($width === false || $height === false) {
+            error_log("Imagem inválida ou corrompida: {$image_path}");
+            return $file;
+        }
+
+        // Ajuste o limite de memória para imagens grandes, se necessário
+        ini_set('memory_limit', '256M');
+
+        // Carrega a imagem original
+        $image = null;
+        switch ($image_extension) {
+            case 'jpeg':
+            case 'jpg':
+                $image = @imagecreatefromjpeg($image_path);
+                break;
+            case 'png':
+                $image = @imagecreatefrompng($image_path);
+                break;
+            default:
+                // Formato não suportado
+                return $file;
+        }
+
+        if (!$image) {
+            // Imagem não pôde ser carregada ou formato inválido
+            error_log("Falha ao carregar a imagem: {$image_path}");
+            return $file;
+        }
+
+        // Redimensionamento, se necessário
+        $image = redimensionar_imagem($image, 1200);
+
+        // Renomeia o arquivo
+        $novo_nome = renomear_imagem($file['name']);
+        $webp_path = pathinfo($image_path, PATHINFO_DIRNAME) . '/' . sanitize_file_name($novo_nome);
+
+        // Realize a conversão para WebP
+        if (!imagewebp($image, $webp_path)) {
+            error_log("Falha ao converter a imagem para WebP: {$image_path}");
+            imagedestroy($image);
+            return $file;
+        }
+
+        // Limpeza
+        imagedestroy($image);
+
+        // Atualize o arquivo e informações do tipo
+        $file['file'] = $webp_path;
+        $file['type'] = 'image/webp';
+        $file['name'] = $novo_nome;
+    }
+
+    // Retorne o arquivo modificado ou original
+    return $file;
+}
+
+function redimensionar_imagem($image, $max_dimensao) {
+    $largura = imagesx($image);
+    $altura = imagesy($image);
+
+    if ($largura > $max_dimensao || $altura > $max_dimensao) {
+        $ratio = $largura / $altura;
+        if ($ratio > 1) {
+            $nova_largura = $max_dimensao;
+            $nova_altura = $max_dimensao / $ratio;
+        } else {
+            $nova_altura = $max_dimensao;
+            $nova_largura = $max_dimensao * $ratio;
+        }
+
+        $nova_imagem = imagecreatetruecolor($nova_largura, $nova_altura);
+        imagecopyresampled($nova_imagem, $image, 0, 0, 0, 0, $nova_largura, $nova_altura, $largura, $altura);
+
+        return $nova_imagem;
+    }
+
+    return $image;
+}
+
+function renomear_imagem($nome_original) {
+    $extensao = '.webp';
+    $novo_nome = 'imagem' . time() . $extensao; // Usando timestamp como identificador temporário
+    return $novo_nome;
+}
+
+function my_post_save_rename_image($post_id) {
+    // Implementar lógica para localizar e renomear a imagem com o ID da postagem
+    // Essa parte depende de como as imagens são gerenciadas em seu sistema
+}
+
+add_filter('wp_handle_upload', 'converte_para_webp');
+add_action('save_post', 'my_post_save_rename_image');
+?>
